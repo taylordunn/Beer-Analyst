@@ -6,7 +6,7 @@ Beerfest 2017.
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-from ratebeer_scraper import search_ratebeer
+from ratebeer_scraper import get_beer_data,search_ratebeer
 
 url = "https://seaportbeerfest.com/breweries"
 page = requests.get(url)
@@ -38,77 +38,89 @@ for category_div in category_list:
                                                       "abv": abv},
                                                        ignore_index = True)
 
-# The following search queries return >1 result
-# The keys of this dict are search queries (brewery + beer name), while the
-#  values are either integers (which of the returned list is the correct beer)
-#  or a string to be used as an alternate search query
-multiple_results = {
-    "Glutenberg Glutenberg IPA": "Glutenberg IPA ASAP",
-    "Tempted Cider Sweet Cider": 0,
-    "Tempted Cider Dry Cider": "Tempted? Irish Craft Cider Medium Dry",
-    "Trois Mousquetaires Oud Bruin": "Les Trois Mousquetaires Hors Série Oud Bruin",
-    "Trois Mousquetaires Sticke Alt": "Les Trois Mousquetaires S.S. Sticke Alt",
-    "Trou du Diable Willow Gose": 0,
-    "Central City Red Racer IPA": 6,
-    "Carlsberg Carlsberg Lager": 0,
-    "Erdinger Weissbier": 1,
-    "Mort Subite Kriek": 1,}
-# These beers do not show up in the rate_beers database
-skip = ["Bulwark Cider Raspberry",
-        "Chainyard Cider Hopped Up"]
 
-search_results = pd.DataFrame(columns = ["brewery", "beer_name",
-                                         "query", "results"])
-test = beerfest_df.iloc[0:5]
-#for i,beer_df in beerfest_df.iterrows():
-google_search_url = ["https://www.google.ca/search?q=",
-                     "+site%3Aratebeer.com"]
-for i,beer_df in test.iterrows():
-    search_query = ' '.join([beer_df.brewery, beer_df.beer_name])
-    page = requests.get(google_search_url[0] + search_query + \
-                        google_search_url[1])
-    soup = BeautifulSoup(page.text, "lxml")
-    print(search_query, soup.find('cite').text)
-    
-    
-    
-    
-if False:    
-    search_query = ' '.join([beer_df.brewery, beer_df.beer_name])
-    if search_query in skip:
-        continue
-    
-    ratings_index = 0
-    if search_query in multiple_results.keys():
-        if str(multiple_results[search_query]).isdigit():
-            ratings_index = multiple_results[search_query]
+
+get_urls = False
+if get_urls:
+    google_search_url = ["https://www.google.ca/search?q=",
+                         "+site%3Aratebeer.com"]
+    #beerfest_ratings_df = beerfest_df.copy()
+    #beerfest_ratings_df["search_query"] = ""
+    #beerfest_ratings_df["br_url"] = None
+    for i,beer_df in beerfest_ratings_df.iterrows():
+        if beer_df.br_url is None:
+            search_query = ' '.join([beer_df.brewery, beer_df.beer_name])
+            beerfest_ratings_df.set_value(i, "search_query", search_query)
+            page = requests.get(google_search_url[0] + search_query + \
+                                google_search_url[1])
+            if page.status_code == 503:
+                print(i, beer_df.beer_name)
+                print("Status code 503")
+                break
+            try:
+                print(search_query)
+                soup = BeautifulSoup(page.text, "lxml")
+                br_url = soup.find('h3', class_ = 'r').a['href'][7:]
+                if br_url[0:30] != "https://www.ratebeer.com/beer/":
+                    br_url = "NA"
+                
+                beerfest_ratings_df.set_value(i, "br_url", br_url)
+            except:
+                search_query = beer_df.beer_name
+                beerfest_ratings_df.set_value(i, "search_query", search_query)
+                page = requests.get(google_search_url[0] + search_query + \
+                                    google_search_url[1])
+                if page.status_code == 503:
+                    print(i, beer_df.beer_name)
+                    print("Status code 503")
+                    break
+                try:
+                    print(search_query)
+                    soup = BeautifulSoup(page.text, "lxml")
+                    br_url = soup.find('h3', class_ = 'r').a['href'][7:]
+                    if br_url[0:30] != "https://www.ratebeer.com/beer/":
+                        br_url = "NA"
+                    beerfest_ratings_df.set_value(i, "br_url", br_url)
+                except:
+                    print("Failed: ", search_query)
         else:
-            search_query = multiple_results[search_query]
-    print(search_query)
-    ratings_df = search_ratebeer(search_query)
-    # If no results, try a broader search with just the beer name
-    if len(ratings_df) == 0:
-        search_query = ' '.join([beer_df.brewery.split(' ')[0],
-                                 beer_df.beer_name])
-        ratings_df = search_ratebeer(search_query)
-        if len(ratings_df) == 0:
-            search_query = beer_df.beer_name
-            ratings_df = search_ratebeer(search_query)
+            print("Skipping: ", i, beer_df.beer_name)
     
-    if search_query in multiple_results.keys(): n_results = 1
-    else: n_results = len(ratings_df)
-    
-    if n_results > 0:
-        rating_df = ratings_df.iloc[ratings_index]
-        result_name = rating_df.beer_name
-    else: 
-        result_name = "NA"
-    search_results = search_results.append({"brewery": beer_df.brewery,
-                                            "beer_name": beer_df.beer_name,
-                                            "query": search_query,
-                                            "results": n_results,
-                                            "result_name": result_name},
-                                            ignore_index = True)
-                    
-           
+    # Manually edit/fix certain urls
+    beerfest_ratings_df.set_value(312, "br_url", 
+        "https://www.ratebeer.com/beer/erdinger-oktoberfest-weizen/48060/")
+
+
+get_ratings = True
+if get_ratings:
+    for i,beer_df in beerfest_ratings_df.iterrows():
+        print(i, beer_df.beer_name)
         
+        br_url = beer_df.br_url
+        if br_url is None or br_url == "NA":
+            br_df = pd.DataFrame([[None] * len(br_df.columns)],
+                                  columns = br_df.columns)
+        else:
+            br_df = get_beer_data(br_url)
+        if i == 0:
+            results_df = br_df
+        else:
+            results_df = results_df.append(br_df, ignore_index = True)
+    beerfest_ratings_df2 = pd.concat([beerfest_ratings_df, results_df],
+                                    axis = 1)
+    
+        
+all_beers = beerfest_ratings_df2[["category", "brewery", "beer_name",
+                                  "abv", "rb_name", 
+                                  "rb_overall_rating", "rb_weighted_avg",
+                                  "rb_ratings",
+                                  "rb_style", "rb_style_rating"]]. \
+                                  sort_values(["rb_overall_rating", "rb_ratings"],
+                                       ascending = [0, 0])
+all_beers.to_csv("tables/beerfest2017.csv")
+
+all_ciders = all_beers.loc[all_beers.category == "Cider"]
+all_ciders.to_csv("tables/beerfest2017_ciders.csv")
+
+all_beers_brewery_order = all_beers.sort_values(["brewery", "beer_name"])
+all_beers_brewery_order.to_csv("tables/beerfest2017_breweries.csv")
